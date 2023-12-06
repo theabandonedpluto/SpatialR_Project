@@ -1,1 +1,3 @@
 # SpatialR_Project
+
+This project was undertaken as part of an examination and focuses on the critical issue of malnutrition, particularly within African countries, addressing significant socio-economic concerns. Through a straightforward spatial correlation analysis utilizing the Moran's Test, we aim to explore the potential spatial relationships among key malnutrition indicators—such as under-5 mortality rate, stunting, low birth weight, and overweight. Acknowledging its limitations, this project represents an initial step, and we remain receptive to opportunities for further enhancement and refinement
