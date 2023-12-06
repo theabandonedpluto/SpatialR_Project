@@ -1,0 +1,326 @@
+---
+title: "Spatial R Project"
+subtitle : "Spatial Correlation Analysis of Malnutrition in African Countries"
+author:
+  - Pearly Tantra 455722
+  - Amabel Nabila 455854
+date: "`r Sys.Date()`"
+output:
+  html_document:  
+    theme: spacelab
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    smooth_scroll: true
+editor_options: 
+  chunk_output_type: console
+---
+## Background
+
+Malnutrition has a major impact on quality of life and healthcare outcomes, resulting in increased morbidity, longer hospital admissions, higher mortality rates, and higher healthcare costs (Serón-Arbeloa et al., 2022). Malnutrition must be addressed as soon as possible in order to execute successful therapeutic interventions, including proper nutritional support to prevent or reverse malnutrition.
+
+Malnutrition is particularly concerning in the setting of the African continent, where it is interwoven with greater issues of poverty and underdevelopment. Adeyeye et al. (2017) emphasize the link between poverty and hunger, underlining the deep impact of underdevelopment, mismanagement, and a lack of strategic vision among African leaders. Despite enormous natural resources, many African countries' dismal economic situations contribute to the perpetuation of poverty and its accompanying health concerns.
+
+We evaluate malnutrition using indicators such as stunting, Under-5 Mortality Rate (U5MR), low birth weight, and overweight. These UNICEF indicators provide an in-depth assessment of nutritional status, taking into account both undernutrition and overnutrition problems.
+
+The study focuses on a spatial correlation analysis of malnutrition in African countries, with the most recent and relevant data from 2020 in the core. UNICEF provided all data for this investigation, assuring excellent accuracy and dependability. The major purpose is to provide thorough information about the geographical distribution of malnutrition on the continent. The research intends to enable targeted interventions and inform policy recommendations by mapping this distribution, which could greatly enhance nutritional outcomes and general health in Africa.
+
+```{r}
+if (!require('pacman')) install.packages('pacman')
+pacman::p_load(ggplot2,maps,dplyr,tidyverse,plotly,viridis,spdep,sp,gridExtra,stargazer,modelsummary)
+```
+
+## Load Data
+- africancountries    : all african countries longitude + latitude
+- filteredBigDf       : panel data with malnutrition variables -> for the model
+- dfNaCountries       : african countires which dont have data
+- dfNonNaCountries    : african countries which have data
+```{r}
+load('africancountries.RData')
+load('filteredBigDf.RData')
+load('dfNaCountries.RData')
+load('dfNonNaCountries.RData')
+```
+
+## Africa Continent
+```{r}
+worldMap <- map_data('world')
+colnames(worldMap)[which(colnames(worldMap) == "region")] <- "Name"
+worldMap$Name[worldMap$Name == 'Democratic Republic of the Congo'] <- 'DR Congo'
+worldMap$Name[worldMap$Name == 'Republic of Congo'] <- 'Congo'
+worldMap$Name[worldMap$Name == 'Ivory Coast'] <- "Côte d'Ivoire"
+worldMap$Name[worldMap$Name == 'Cape Verde'] <- "Cabo Verde"
+worldMap$Name[worldMap$Name == 'Sao Tome and Principe'] <- "Sao Tome & Principe"
+worldMap$Name[worldMap$Name == 'Swaziland'] <- "Eswatini"
+
+afContinent <- worldMap %>% filter(Name %in% unique(baseDf$Name))
+
+centroids <- afContinent %>% group_by(Name) %>% 
+  summarise(long_centroid = mean(long),lat_centroid =mean(lat))
+
+ggplot(afContinent, aes(x=long, y=lat, group=Name))+
+  geom_polygon(color='black',fill='darkblue') +
+  geom_text(data = centroids, aes(x = long_centroid, y = lat_centroid, label = Name), color = 'grey', size = 2) +
+  theme_minimal() +
+  labs(title = "African Continent Map")
+```
+
+## UNICEF DATA
+In our investigation of malnutrition metrics, we focus on critical indicators, namely:
+
+(1) Under 5 years mortality rate
+(2) Low Birth Weight
+(3) Overweight
+(4) Stunting
+
+This selective focus stems from the limitations within UNICEF's available data, which currently covers a subset of African nations. Consequently, our analysis specifies of malnutrition measures within  38 countries on the African continent.
+
+```{r}
+dfNonNaCountries <- worldMap %>% filter(Name %in% unique(dfNonNaCountries$Name))
+dfNaCountries <- worldMap %>% filter(Name %in% unique(dfNaCountries$Name))
+
+ggplot() +
+  geom_polygon(data = dfNonNaCountries, aes(x = long, y = lat, group = Name),
+               color = 'black', fill = 'darkblue') +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),
+               color = 'black', fill = 'transparent') + 
+  theme_minimal() +
+  labs(title = "African Continent Map", subtitle = "Data Availibility")
+```
+
+## Variables
+### Under 5 Years Old Mortality Rate
+
+High child mortality rates can be an indirect indicator of malnutrition's impact, as malnutrition contributes to child mortality.
+
+Data: https://data.unicef.org/topic/child-survival/under-five-mortality/#data
+
+```{r}
+selectedCols <- c('countryCode','countryCode2','Name','Subregion','Year','variables','Values')
+afContinent <- afContinent[,c("long","lat","group","order","Name")] 
+
+# plot by variables
+U5MR <- filteredBigDf %>% filter(variables=='U5MR') %>% select(selectedCols)
+U5MR2020 <- U5MR %>% filter(Year == 2020)
+U5MR2020 <- left_join(afContinent,U5MR2020,by='Name')
+ggplot(U5MR2020,aes(x=long,y=lat, group=group)) + 
+  geom_polygon(aes(fill=Values),color='black') + theme_minimal() +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),color = 'black', fill = 'lightgray') + 
+  labs(title = "Under 5 Years Mortality Rate",subtitle="Year 2020")
+```
+
+### Low Birth Weight
+
+BMI is often used to assess adult and adolescent malnutrition. A low BMI can indicate undernutrition, while a high BMI may suggest overnutrition.
+
+Data: https://data.unicef.org/topic/nutrition/low-birthweight/
+
+```{r}
+selectedCols <- c('countryCode','countryCode2','Name','Subregion','Year','variables','Values')
+afContinent <- afContinent[,c("long","lat","group","order","Name")] 
+
+# plot by variables
+LBW <- filteredBigDf %>% filter(variables=='LBW') %>% select(selectedCols)
+LBW2020 <- LBW %>% filter(Year == 2020)
+LBW2020 <- left_join(afContinent,LBW2020,by='Name')
+
+ggplot(LBW2020,aes(x=long,y=lat, group=group)) + 
+  geom_polygon(aes(fill=Values),color='black') + theme_minimal() +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),color = 'black', fill = 'lightgray') + 
+  labs(title = "Low Birth Rate",subtitle="Year 2020")
+```
+
+### Stunting
+
+Stunting is a measure of chronic malnutrition in children under the age of 5. It reflects low height-for-age and indicates that a child has experienced inadequate nutrition over an extended period.
+
+Data: https://data.unicef.org/resources/dataset/malnutrition-data/
+
+```{r}
+selectedCols <- c('countryCode','countryCode2','Name','Subregion','Year','variables','Values')
+afContinent <- afContinent[,c("long","lat","group","order","Name")] 
+
+stunting <- filteredBigDf %>% filter(variables=='Stunting') %>% select(selectedCols)
+stunting2020 <- LBW %>% filter(Year == 2020)
+stunting2020 <- left_join(afContinent,stunting2020,by='Name')
+
+ggplot(stunting2020,aes(x=long,y=lat, group=group)) + 
+  geom_polygon(aes(fill=Values),color='black') + theme_minimal() +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),color = 'black', fill = 'lightgray') + 
+  labs(title = "Stunting",subtitle="Year 2020")
+```
+
+
+### Overweight
+
+Overweight refers to a child who is carrying excess body weight in relation to their height. In other words, a child is considered overweight if they have a higher weight than what is deemed appropriate for their height.
+
+Data: https://data.unicef.org/resources/dataset/malnutrition-data/
+
+```{r}
+selectedCols <- c('countryCode','countryCode2','Name','Subregion','Year','variables','Values')
+afContinent <- afContinent[,c("long","lat","group","order","Name")] 
+
+overweight <- filteredBigDf %>% filter(variables=='Overweight') %>% select(selectedCols)
+overweight2020 <- LBW %>% filter(Year == 2020)
+overweight2020 <- left_join(afContinent,overweight2020,by='Name')
+
+ggplot(overweight2020,aes(x=long,y=lat, group=group)) + 
+  geom_polygon(aes(fill=Values),color='black') + theme_minimal() +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),color = 'black', fill = 'lightgray') + 
+  labs(title = "Overweight",subtitle="Year 2020")
+```
+
+## Spatial Correlation Analysis
+
+According to Feng et al. (2021) and Cheng (2016), spatial correlation analysis is a methodological approach that has found numerous applications in large-scale research undertakings. Their work demonstrates the adaptability of spatial correlation analysis, demonstrating its application in disciplines such as traffic prediction and environmental contamination research. This method allows for the analysis of relationships between observations within a spatial context, with a focus on the impact of proximity and spatial arrangement on the correlation between variables.
+
+Divit and Watnik (2022) contribute to the comprehension of spatial correlation by stressing its significance in describing relationships between spatial positions. This indicates that spatial correlation analysis goes beyond typical statistical approaches by adding geographical information, providing a more nuanced view of the interdependence of variables within a given location.
+
+Tohyama (2020) expands on the conceptual underpinnings of spatial correlation, characterizing it as a superposition of matching correlation functions. This emphasizes the intricacy and multidimensionality of spatial correlation analysis, which includes integrating several correlation functions to represent the subtle relationships within spatially scattered datasets.
+
+In the context of our research on malnutrition indicators across African countries, geographical correlation analysis is critical. The goal is to figure out how these variables interact in the geographical space of the African continent. We intend to use spatial correlation analysis to identify patterns and connections that may be influenced by the geographical arrangement of countries, offering useful insights for targeted treatments and policy recommendations in addressing malnutrition.
+
+### Spatial Points
+
+```{r}
+# ----- U5MR ----- 
+U5MR <- filteredBigDf %>% filter(Year==2020, variables=='U5MR')
+coordinates(U5MR) <- c("longitude", "latitude")
+proj4string(U5MR) <- CRS("+proj=longlat +datum=WGS84")
+# ----- stunting ----- 
+stunting <- filteredBigDf %>% filter(Year==2020, variables=='Stunting')
+coordinates(stunting) <- c("longitude", "latitude")
+proj4string(stunting) <- CRS("+proj=longlat +datum=WGS84")
+# ----- LBW ----- 
+LBW <- filteredBigDf %>% filter(Year==2020, variables=='LBW')
+coordinates(LBW) <- c("longitude", "latitude")
+proj4string(LBW) <- CRS("+proj=longlat +datum=WGS84")
+# ----- overweight ----- 
+overweight <- filteredBigDf %>% filter(Year==2020, variables=='Overweight')
+coordinates(overweight) <- c("longitude", "latitude")
+proj4string(overweight) <- CRS("+proj=longlat +datum=WGS84")
+```
+
+### Create Neighbors and Weights
+
+Next, we have to create spatial weights of matrices based on the calculation of longitude and latitude for the African countries
+
+```{r}
+# based on k-nearest neighbors
+neighU5MR <- knn2nb(knearneigh(coordinates(U5MR), k = 5))
+neighstunting <- knn2nb(knearneigh(coordinates(stunting), k = 5))
+neighLBW <- knn2nb(knearneigh(coordinates(LBW), k = 5))
+neighoverweight <- knn2nb(knearneigh(coordinates(overweight), k = 5))
+# Create spatial weights matrix
+wmatU5MR <- nb2listw(neighU5MR, style = "W")
+wmatstunting <- nb2listw(neighstunting, style = "W")
+wmatLBW <- nb2listw(neighLBW, style = "W")
+wmatoverweight <- nb2listw(neighoverweight, style = "W")
+```
+
+### Calculate Spatial Autocorrelation - Moran's Test
+
+Griffith (2020) defines spatial autocorrelation as the correlation of values of a single variable across a two-dimensional surface, which challenges the conventional statistician's assumption of independent observations. It can be interpreted as a nuisance parameter, self-correlation, a map pattern, a diagnostic tool, a surrogate for missing variables, a repository of redundant information, a mechanism for spatial processes, an instigator of spatial spillover, and an outcome influenced by areal unit demarcation.
+
+The importance of spatial autocorrelation is highlighted by Freitas et al. (2022), who define spatially correlated data as geographic information that exhibits both spatial autocorrelation and variability that originates inside each region and is adjacent to other regions.
+
+Based on Vilinová and Petrikovičová (2023), Moran's index (I) values are important for measuring spatial autocorrelation since they range from (-1) for perfect variance to (+1) for absolute correlation. More positive spatial autocorrelation is indicated by a number closer to 1, whereas more negative spatial autocorrelation is indicated by a value closer to (-1). Notably, different datasets can display different levels of spatial autocorrelation, including both positive and negative autocorrelation in the same group.
+
+The calculation of Spatial Autocorrelation through Moran's Test assesses the degree of similarity or dissimilarity between neighboring observations within a spatial dataset, helping to unveil patterns of spatial clustering or dispersion in the distribution of a specific variable across geographical regions
+
+```{r}
+moranTestU5MR <- moran.test(U5MR$Values, wmatU5MR)
+moranTestStunting <- moran.test(stunting$Values, wmatstunting)
+moranTestLBW <- moran.test(LBW$Values, wmatLBW)
+moranTestOverweight <- moran.test(overweight$Values, wmatoverweight)
+
+moranSummary <- data.frame(
+  Var = c("U5MR", "Stunting", "LBW", "Overweight"),
+  Moran_I_Statistic = c(moranTestU5MR$estimate[1], moranTestStunting$estimate[1], moranTestLBW$estimate[1],
+                        moranTestOverweight$estimate[1]),
+  Expectation = c(moranTestU5MR$estimate[2], moranTestStunting$estimate[2], moranTestLBW$estimate[2],
+                  moranTestOverweight$estimate[2]),
+  Variance = c(moranTestU5MR$estimate[3], moranTestStunting$estimate[3], moranTestLBW$estimate[3],
+               moranTestOverweight$estimate[3]),  # Use 'estimate' instead of 'variance'
+  P_Value = c(moranTestU5MR$p.value, moranTestStunting$p.value, moranTestLBW$p.value, moranTestOverweight$p.value)
+)
+
+moranSummary
+```
+Given the results:
+
+The variable "Overweight" has a Moran's I statistic with a corresponding p-value of 0.00342, which is below the typical significance level of 0.05. This suggests a significant spatial autocorrelation for the "Overweight" variable among neighboring regions or countries.
+
+On the other hand, the variables "U5MR", "Stunting", and "LBW" have p-values of 0.08397, 0.01939, and 0.04635, respectively. These p-values are above the common significance level of 0.05, indicating that for these variables, there isn't sufficient evidence to reject the null hypothesis of no spatial autocorrelation.
+
+Therefore, based on the standard significance level of 0.05, only the "Overweight" variable appears to exhibit significant spatial autocorrelation among the variables tested.
+
+### Moran Scatterplot
+
+Using indices such as the Geary Ratio and the Moran Coefficient, Griffith (2020) discoveries on spatial autocorrelation are efficiently quantified. The Moran Coefficient, in particular, stands out as a statistically sound metric, with a negative relationship to the Geary Ratio. This inverse relationship suggests that while one index rises, the other falls, showing the complimentary nature of these measures in capturing different aspects of spatial autocorrelation.
+
+The Moran scatterplot is a useful visualization tool, offering an accessible picture of the link between overweight rates and their geographical relationships. The scatterplot helps the detection of trends such as clustering or dispersion among nearby African countries by visualizing these numbers. This visual representation improves our understanding of how overweight rates vary geographically, offering insight on potential spatial relationships or differences.
+
+When examining socioeconomic and demographic data on a regional scale, it is worth noting that the majority of these variables display relatively positive spatial autocorrelation. This means that surrounding regions have similar overweight rates, which contributes to a better understanding of spatial trends in health-related metrics. Researchers may discover the intricacies of these spatial correlations using the Moran scatterplot, paving the door for educated studies and focused interventions in public health and regional planning.
+
+```{r}
+moranPlot <- moran.plot(overweight$Values, listw = wmatoverweight, labels = row.names(overweight), pch = 19)
+```
+
+Comment :
+
+A Moran's I scatterplot is a graphical tool used to assess spatial autocorrelation, measuring the extent to which spatial features and their corresponding data values exhibit clustering (positive autocorrelation) or dispersion (negative autocorrelation) in space. Moran's I line of best fit is the slope line or diagonal line. The slope indicates the overall magnitude and direction of spatial autocorrelation. A positive and large slope shows positive spatial autocorrelation, meaning that similar values are clustered in space.
+
+The sites labeled 12, 34, and 36 are outliers or influential places that deviate significantly from the general pattern of spatial autocorrelation. They are identified by unique identifiers or location IDs. Although not directly apparent, the slope of the line indicates the Moran's I statistic. A steep positive slope indicates substantial positive spatial autocorrelation, whereas a flatter slope indicates weaker autocorrelation.
+
+The majority of data points are located above the middle horizontal line, indicating that most places have greater spatial lag values than their own values. This points to a spatial dependence pattern, in which areas with lower rates of overweight are surrounded by areas with greater rates.
+
+```{r}
+baseMap <- ggplot() +
+  geom_polygon(data = dfNonNaCountries, aes(x = long, y = lat, group = Name),
+               color = 'black', fill = 'lightblue') +
+  geom_polygon(data = dfNaCountries, aes(x = long, y = lat, group = Name),
+               color = 'black', fill = 'transparent') + 
+  theme_minimal()
+
+overweightDf <- as.data.frame(overweight)
+
+if (moranTestOverweight$p.value < 0.05) {
+  baseMap +
+    geom_text(data = overweightDf, aes(x = longitude, y = latitude,  label = "+"), color = 'red') +
+    labs(title="Overweight",subtitle=" with Significant Spatial Autocorrelation")
+} else {
+  baseMap +
+  geom_text(data = overweightDf, aes(x = longitude, y = latitude, label = "+"), color = 'blue') +
+    labs(title="Overweight" ,subtitle="without Significant Spatial Autocorrelation")
+}
+
+```
+
+## Potential Enhancements
+
+One avenue for improvement involves exploring alternative models that incorporate the time dimension. The dataset spans the years 2000 to 2020, providing a chance to use a spatial panel data model. This method provides for a more detailed analysis by taking into account temporal dynamics, potentially offering deeper insights into the observed spatial patterns across a two-decade span.
+
+## Reference
+
+- Adeyeye, S. A. O., Adebayo-Oyetoro, A. O., & Tiamiyu, H. K. (2017). Poverty and malnutrition in Africa: A conceptual analysis. *Nutrition & Food Science, 47*(6), 754-764.
+
+- Cheng, Z. (2016). The spatial correlation and interaction between manufacturing agglomeration and environmental pollution. *Ecological Indicators, 61*, 1024-1032.
+
+- Divitt, S., & Watnik, A. T. (2022). Spatial-spectral correlations of broadband speckle in around-the-corner imaging conditions. *Optics Express, 30*(5), 7169-7186.
+
+- Feng, S., Huang, J., Shen, Q., Shi, Q., & Shi, Z. (2021). A Hybrid Model Integrating Local and Global Spatial Correlation for Traffic Prediction. *IEEE Access, 10*, 2170-2181.
+
+- Freitas, W. W., de Souza, R. M., Amaral, G. J., & De Bastiani, F. (2022). Exploratory spatial analysis for interval data: A new autocorrelation index with COVID-19 and rent price applications. *Expert Systems with Applications, 195*, 116561.
+
+- Griffith, D. A. (2020). Spatial Autocorrelation. In A. Kobayashi (Ed.), *International Encyclopedia of Human Geography (2nd ed., pp. 355-366)*. Elsevier.
+
+- Serón-Arbeloa, C., Labarta-Monzón, L., Puzo-Foncillas, J., Mallor-Bonet, T., Lafita-López, A., Bueno-Vidales, N., & Montoro-Huguet, M. (2022). Malnutrition screening and assessment. *Nutrients, 14*(12), 2392.
+
+- Tohyama, M. (2020). Spatial impression and binaural sound field. In M. Tohyama (Ed.), *Acoustic Signals and Hearing (pp. 179-210)*. Academic Press.
+
+- UNICEF. (2023). Under-Five Mortality. 
+
+- Vilinová, K., & Petrikovičová, L. (2023). Spatial Autocorrelation of COVID-19 in Slovakia. *Tropical Medicine and Infectious Disease, 8*(6), 298.
